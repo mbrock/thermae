@@ -84,6 +84,10 @@ img {
   text-decoration: none;
 }
 
+p {
+  text-align: justify;
+}
+
 blockquote {
   font: 16px/27px var(--serif);
   background: #F5F8FA;
@@ -106,9 +110,14 @@ strong {
   font-weight: var(--semibold);
 }
 
-.linkref {
+p:first-child { margin-top: 0; }
+p:last-child { margin-bottom: 0; }
+
+.linkref > div > * {
   border: 1px solid #ccc;
   border-radius: 8px;
   background: #fdfdfd;
-  padding: 0 1em 1em;
+  padding: .5em 1em;
+  font-size: 16px;
+  line-height: 22px;
 }

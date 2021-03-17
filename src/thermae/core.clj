@@ -200,8 +200,8 @@
 (defn process-body [x]
   (-> x
    (s/replace #" \(\[Location.*?\]\(.*?\)\)" "")
-   (s/replace #"Highlights first synced by #Readwise (.*)" "$1 highlights:")
-   (s/replace #"New highlights added (.*?) at .*" "$1 highlights:")))
+   (s/replace #"Highlights first synced by #Readwise (.*)" "Highlights from $1.")
+   (s/replace #"New highlights added (.*?) at .*" "Highlights from $1.")))
 
 (defn render-body [body indent heading]
   (let [tree (markup-parser (process-body body))]
@@ -231,11 +231,13 @@
 
 (defn preify [x] [:pre (with-out-str (pprint (render-block x 0)))])
 
-(defn render-ref [x]
-  (let [title (-> x :block/page :node/title)]
-    [:li [:div.linkref
-          [:h3 [:a {:href (str "/" (slug title))} (show-namespaced-title title)]]
-          (transform-tree (markup-parser (:block/string x)))]]))
+(defn render-refs [title xs]
+  [:li
+   [:div.linkref
+    [:h3 [:a {:href (str "/" (slug title))} (show-namespaced-title title)]]
+    [:div
+     (map (fn [x]
+            (render-body (:block/string x) 0 nil)) xs)]]])
 
 (defn single-page [node]
   (println "Rendering" (:block/uid node) (:node/title node))
@@ -247,17 +249,21 @@
     " » "
     "Notes"
     " » "
-    [:strong (node :node/title)]
+    [:strong (show-namespaced-title (node :node/title))]
     ]
    [:article
-    [:h1 (node :node/title)]
+    [:h1 (show-namespaced-title (node :node/title))]
     (map #(render-block % 0) (node :block/children))]
    (if (empty? (node :block/_refs))
      '()
      [:article
       [:h2 "References"]
       [:ul
-       (map render-ref (node :block/_refs))]])
+       (for [[title refs]
+             (filter first
+                     (sort-by first (into [] (group-by #(-> % :block/page :node/title)
+                                                       (:block/_refs node)))))]
+         (render-refs title refs))]])
    ))
 
 (defn test-1 []
