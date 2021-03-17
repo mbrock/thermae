@@ -37,6 +37,7 @@
                          :block/string
                          :block/order
                          :block/heading
+                         {:block/_refs [:block/uid :block/string {:block/page [:node/title]}]}
                          :block/children {:block/children ...}])
          :where [?e :node/title]]
        db))
@@ -49,7 +50,8 @@
                                :block/string
                                :block/order
                                :block/heading
-                               :block/children {:block/children ...}])
+                               {:block/_refs [:block/uid :block/string {:block/page [:node/title]}]}
+                                :block/children {:block/children ...}])
                :in $ ?title
                :where [?e :node/title ?title]]
              db title)]
@@ -122,9 +124,23 @@
 (defn transform-tree-to-link [tree]
   (let [go transform-tree-to-link]
     (match tree
-      [:inline x] (go x)
+      [:inline & xs] (apply str (map go xs))
       [:word x] x
+      [:symbol x] x
+      [:link x] (str "[[" (go x) "]]")
       _ (throw (ex-info "transform-tree-to-link" {:tree tree})))))
+
+(defn namespaced-title? [x]
+  (re-matches #".+/.+" x))
+
+(defn show-namespaced-title [title]
+  (match (s/split title #"/")
+    ["books" x] (str "📙 " x)
+    ["articles" x] (str "🖋 " x)
+    _ title))
+
+(defn link-href [x]
+  (str "/" (slug (transform-tree-to-link x))))
 
 (defn transform-tree [tree]
   (let [go transform-tree]
@@ -132,17 +148,32 @@
       [:root x] (go x)
 
       [:attr x y]
-      (list [:b (go x)] ": " (go y))
+      (list [:strong (go x)] ": " (go y))
 
       [:text x] [:span (go x)]
       [:word x] x
       [:italic x] [:em (go x)]
+      [:bold x] [:strong (go x)]
 
       [:paragraph x] (go x)
 
+      [:inline
+       [:word "https"]
+       [:symbol ":"]
+       [:word x]]
+      (let [url (str "https:" x)]
+        [:a {:href url} url])
+
       [:inline & xs] (map go xs)
 
-      [:link x] [:a.ref {:href (transform-tree-to-link x)} (go x)]
+      [:link ([:inline [:word (title :guard namespaced-title?)]] :as x)]
+      [:a.ref.ns {:href (link-href x)}
+       (show-namespaced-title title)]
+
+      [:link x]
+      [:a.ref {:href (link-href x)} (go x)]
+
+      [:img x] [:img {:src x}]
 
       [:blockquote x] [:blockquote (go x)]
       [:symbol x] x
@@ -153,8 +184,11 @@
 
       [:blockref [:uid x]]
       (let [it (find-block x)
-            title (-> it :block/page :node/title)]
-        [:a {:href (str "/" (slug title))} title])
+            title (-> it :block/page :node/title)
+            content (:block/string it)]
+        [:a {:href (str "/" (slug title))} (go (markup-parser content))])
+
+      [:xlink text url] [:a {:href url} (go text)]
 
       _ (throw (ex-info "transform error" {:tree tree}))
       ))
@@ -197,6 +231,12 @@
 
 (defn preify [x] [:pre (with-out-str (pprint (render-block x 0)))])
 
+(defn render-ref [x]
+  (let [title (-> x :block/page :node/title)]
+    [:li [:div.linkref
+          [:h3 [:a {:href (str "/" (slug title))} (show-namespaced-title title)]]
+          (transform-tree (markup-parser (:block/string x)))]]))
+
 (defn single-page [node]
   (println "Rendering" (:block/uid node) (:node/title node))
   (html5
@@ -212,6 +252,12 @@
    [:article
     [:h1 (node :node/title)]
     (map #(render-block % 0) (node :block/children))]
+   (if (empty? (node :block/_refs))
+     '()
+     [:article
+      [:h2 "References"]
+      [:ul
+       (map render-ref (node :block/_refs))]])
    ))
 
 (defn test-1 []
@@ -223,7 +269,7 @@
 (def all-pages
   (into {}
         (for [[node] everything]
-          [(str "/" (slug (node :node/title)) ".html")
+          [(str "/" (slug (node :node/title)) "/")
            (fn [context]
              (single-page node))])))
 
@@ -235,10 +281,11 @@
     (html5
      [:meta {:charset "utf-8"}]
      [:link {:rel "stylesheet" :href "index.css"}]
-     [:ul
-      (map
-       (fn [[x]] [:li [:a {:href (str "/" (slug x) ".html")} x]])
-       (sort (d/q '[:find ?t :where [_ :node/title ?t]] db)))])}))
+     [:article
+      [:ul
+       (map
+        (fn [[x]] [:li [:a {:href (str "/" (slug x) "/")} x]])
+        (sort (d/q '[:find ?t :where [_ :node/title ?t]] db)))]])}))
 
 (def app (stasis/serve-pages pages))
 

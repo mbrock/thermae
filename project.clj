@@ -12,9 +12,13 @@
                  [ring "1.9.1"]
                  [slugger "1.0.1"]
                  [instaparse "1.4.10"]
+                 [prone "2020-01-17"]
                  ]
   :plugins [[lein-ring "0.12.5"]]
   :ring {:handler thermae.core/app}
   :main ^:skip-aot thermae.core
   :target-path "target/%s"
-  :profiles {:uberjar {:aot :all}})
+
+  :profiles
+  {:uberjar {:aot :all}
+   :dev {:ring {:stacktrace-middleware prone.middleware/wrap-exceptions}}})
