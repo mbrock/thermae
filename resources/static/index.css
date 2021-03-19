@@ -121,3 +121,14 @@ p:last-child { margin-bottom: 0; }
   font-size: 16px;
   line-height: 22px;
 }
+
+.nop p {
+  margin: 0;
+}
+
+table.daily-notes td:first-child {
+  text-align: right;
+  padding-right: 1em;
+}
+
+iframe { width: 100%; }

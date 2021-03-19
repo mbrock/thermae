@@ -6,6 +6,7 @@
   :dependencies [
                  [org.clojure/clojure "1.10.0"]
                  [org.clojure/core.match "1.0.0"]
+                 [org.clojure/data.json "1.1.0"]
                  [datascript "1.0.7"]
                  [hiccup "1.0.5"]
                  [stasis "2.5.0"]
