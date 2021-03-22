@@ -1,0 +1,1 @@
+site:; rm -rf ../meekaale/* && lein run && git -C ../meekaale commit -am "update"
