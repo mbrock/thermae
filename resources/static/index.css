@@ -1,12 +1,10 @@
-@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:ital,wght@0,300;0,400;0,500;0,700;1,300;1,400&family=IBM+Plex+Serif:ital@0;1&display=swap');
-
 body {
-  --sans-serif: "ibm plex sans", "helvetica neue", helvetica, sans-serif;
-  --serif: "ibm plex serif", "original garamond tl", georgia, "times new roman", times, serif;
+  --sans-serif: "helvetica neue", helvetica, sans-serif;
+  --serif: "original garamond tl", georgia, "times new roman", times, serif;
 
-  --semibold: 500;
+  --semibold: 600;
 
-  font: 18px/28px var(--sans-serif);
+  font: 16px/24px var(--sans-serif);
   color: #222;
   margin: 0;
 }
@@ -14,38 +12,47 @@ body {
 header {
   display: flex;
   padding: .25em .5em;
-  background: #eed;
+  /* background: #eed; */
   margin-bottom: 2em;
 }
 
 article {
   margin: 2em auto;
   max-width: 36em;
+  padding: 0 1em;
 }
 
-a {
-  color: #4f43b2;
-  text-decoration: none;
-  /* border-bottom: 1px solid currentcolor; */
-}
+a { text-decoration: none; }
 
 h1, h2, h3 {
   font-size: inherit;
-  line-height: normal;
+  line-height: 1.5rem;
   margin: 0;
 }
 
-article h1, article h2, article h3 {
-  margin-bottom: .5em;
+h2 {
+  font-size: 20px;
+  letter-spacing: -0.03em;
+  line-height: 3rem;
 }
 
-h3 {
-  margin-top: 1em;
+.article-list h2 {
+  font: inherit;
 }
+
+/* article h1, article h2, article h3 { */
+/*   margin-bottom: .5em; */
+/* } */
+
+/* h3 { */
+/*   margin-top: 1em; */
+/* } */
 
 h2, h3 {
   font-weight: var(--semibold);
 }
+
+article h3 { line-height: 3rem; margin-top: 1.5rem; }
 
 ul {
   list-style-type: none;
@@ -56,22 +63,24 @@ article {
 }
 
 ul, li {
-  margin-bottom: .5em;
+  margin: 0;
   padding-left: 0;
 }
 
 img {
   display: block;
   margin: 0 auto;
+  max-width: 100%;
 }
 
 .hide { display: none; }
 
-.ref:not(.ns) {
-  font-variant: small-caps;
-  text-transform: uppercase;
-  font-size: 80%;
-  letter-spacing: 0.02em;
+p .ref:not(.ns) {
+  /* font-variant: small-caps; */
+  /* text-transform: uppercase; */
+  font-weight: normal;
+  /* font-size: 80%; */
+  letter-spacing: -0.02em;
 }
 
 .ref.ns {
@@ -80,7 +89,6 @@ img {
 
 .ref {
   font-family: var(--sans-serif);
-  font-weight: var(--semibold);
   text-decoration: none;
 }
 
@@ -89,16 +97,22 @@ p {
 }
 
 blockquote {
-  font: 16px/27px var(--serif);
-  background: #F5F8FA;
+  /* font: 14px/22px var(--serif); */
+  font-family: var(--serif);
+  /* background: #F5F8FA; */
+  color: #444;
   padding: 0.5em 1em;
   border-left: 4px solid #0002;
+
+  /* border: 1px solid #0002; */
+  /* border-width: 1px 1px 1px 4px; */
+
   text-align: justify;
-  margin: 1em 0;
+  margin: 1em 1em 0 1em;
   white-space: pre-line;
 }
 
-.indent { margin-left: 1em; }
+/* .indent { margin-left: 1em; } */
 
 a.cite {
   text-decoration: none;
@@ -106,9 +120,19 @@ a.cite {
   transform: translateX(.25em) translateY(.25em) scale(1.5);
 }
 
-strong {
+.semibold, strong {
   font-weight: var(--semibold);
 }
+
+p, div.indent {
+  margin-top: .8rem;
+  margin-bottom: 0;
+}
+
+div.indent { margin-left: 1em; }
+h2 + div.indent { margin-top: 0; margin-left: 0; }
+
+h3 + p { margin-top: 0; }
 
 p:first-child { margin-top: 0; }
 p:last-child { margin-bottom: 0; }
@@ -132,3 +156,59 @@ table.daily-notes td:first-child {
 }
 
 iframe { width: 100%; }
+
+.date { opacity: 0.8; }
+
+.small {
+  font-size: 80%;
+  line-height: 20px;
+}
+
+.mentions-list {
+  display: flex;
+  gap: 1em;
+  margin: .5rem 0 0 .5rem;
+}
+
+.mentions-list > ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 1em;
+}
+
+.ml-1 { margin-left: 1em; }
+.mb-1 { margin-bottom: 1em; }
+
+.mt-2 { margin-top: 2em; }
+
+.flex { display: flex; }
+.gap-1 { gap: 1em; }
+.column { flex-direction: column; }
+
+.mentions-list a {
+  text-overflow: ellipsis;
+  max-width: 25em;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.space-between {
+  justify-content: space-between;
+}
+
+.Summary {
+  opacity: 0.8;
+  font-style: italic;
+}
+
+.blockref:only-child {
+  display: block;
+  border: 1px solid #ccc;
+  border-width: 1px 1px 1px 4px;
+  padding: .5em 1em;
+  color: inherit;
+  font-size: 80%;
+  line-height: 20px;
+}
+
+a.xlink { border-bottom: 1px solid currentcolor; }
