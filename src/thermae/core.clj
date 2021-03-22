@@ -15,6 +15,8 @@
    [stasis.core :as stasis]
    [instaparse.core :as insta]))
 
+(def website-name "goula.sh")
+
 (def read-db #(edn/read-string {:readers d/data-readers} %))
 (def db (->> "mikaelogy.edn" io/resource slurp read-db))
 
@@ -44,15 +46,23 @@
 
 (def nodes-by-title (into {} (for [x everything] [(:node/title x) x])))
 
+(defn page-author-markup [page]
+  (s/replace
+   (:block/string
+    (first
+     (filter #(s/starts-with? (:block/string %) "Author:: ")
+       (:block/children page))))
+   #"^Author:: " ""))
+
 (def all-books
-  (map #(nodes-by-title %)
-       (sort
-        (query '[:find [?x ...] :where [?n :node/title ?x] [?n :block/refs ?r] [?r :node/title "books"]]))))
+  (sort-by page-author-markup
+    (map #(nodes-by-title %)
+         (query '[:find [?x ...] :where [?n :node/title ?x] [?n :block/refs ?r] [?r :node/title "books"]]))))
 
 (def all-articles
-  (map #(nodes-by-title %)
-       (sort
-        (query '[:find [?x ...] :where [?n :node/title ?x] [?n :block/refs ?r] [?r :node/title "articles"]]))))
+  (sort-by page-author-markup
+    (map #(nodes-by-title %)
+         (query '[:find [?x ...] :where [?n :node/title ?x] [?n :block/refs ?r] [?r :node/title "articles"]]))))
 
 (defn change-date-format [date]
   (match (re-matches #"(..)-(..)-(....)" date)
@@ -79,14 +89,6 @@
 
 (defn slug [title]
   (:href (page-type title)))
-
-(defn page-author-markup [page]
-  (s/replace
-   (:block/string
-    (first
-     (filter #(s/starts-with? (:block/string %) "Author:: ")
-       (:block/children page))))
-   #"^Author:: " ""))
 
 (def daily-notes
   (reverse
@@ -227,11 +229,15 @@
   (insta/parser "
     root = attr | blockquote | !'> ' paragraph
 
-    attr       = word <':: '> inline
+    attr       = word <':: '> (url / inline)
     blockquote = <'> '> inline
     paragraph  = inline
 
-    inline = (classtag | blockref | alias | xlink | link | img | video | text)+
+    url = #'https?:.*'
+
+    inline = (classtag | blockref | alias | xlink | link | img | video | parenthesis | text)+
+
+    parenthesis = <'('> inline <')'>
 
     classtag = <'#.'> #'[a-zA-Z]+'
 
@@ -300,9 +306,25 @@
     (match tree
       [:root x] (go x)
 
+      [:paragraph [:inline [:blockref [:uid x]]]]
+      (let [it (find-block x)
+            title (-> it :block/page :node/title)
+            content (:block/string it)
+            name (go-without-links (markup-parser content))]
+        (if no-links? name
+            [:blockquote.blockref
+             [:a {:title title :href (str "/" (slug title) "#" x)} name]]))
+
+      [:blockref [:uid x]]
+      (let [it (find-block x)
+            title (-> it :block/page :node/title)
+            content (:block/string it)
+            name (go-without-links (markup-parser content))]
+        (if no-links? name
+            [:a {:class "blockref" :title title :href (str "/" (slug title) "#" x)} name]))
+
       [:attr [:word "Note"] y]
-      y
-                                        ;(list "📝 " y)
+      (list "📝 " (go y))
 
       [:attr x y]
       (list [:strong (go x)] ": " (go y))
@@ -316,13 +338,9 @@
 
       [:paragraph x] (go x)
 
-      [:inline
-       [:word "https"]
-       [:symbol ":"]
-       [:word x]]
-      (let [url (str "https:" x)]
-        (if no-links? url
-            [:a {:href url} url]))
+      [:url url]
+      (if no-links? url
+          [:a {:href url :target "_blank"} url])
 
       [:inline & xs] (map go xs)
 
@@ -345,21 +363,21 @@
 
       [:img x] [:img {:src x}]
 
+      [:parenthesis [:inline [:xlink [:word "View Highlight"] _]]]
+      nil
+
+      [:parenthesis [:inline & xs]] (go `[:inline [:symbol "("] ~@xs [:symbol ")"]])
+
       [:blockquote x] [:blockquote (go x)]
       [:symbol x] x
 
-      [:alias [:symbol "*"] [:uid y]]
-      (let [it (find-block y)]
-        (if no-links? "*"
-            [:a.cite {:href "#"} "*"]))
-
-      [:blockref [:uid x]]
+      [:alias [:symbol "*"] [:uid x]]
       (let [it (find-block x)
             title (-> it :block/page :node/title)
             content (:block/string it)
             name (go-without-links (markup-parser content))]
         (if no-links? name
-            [:a {:class "blockref" :href (str "/" (slug title))} name]))
+            [:a {:class "cite" :title "Go to quote" :href (str "/" (slug title) "#" x)} "*"]))
 
       [:xlink text url]
       (if no-links? (go text)
@@ -379,14 +397,16 @@
   (transform-tree tree false))
 
 (defn render-body
-  ([body] (render-body body 0 nil))
-  ([body indent heading] (render-body body indent heading ()))
-  ([body indent heading tags]
+  ([body] (render-body body 0 nil nil))
+  ([body indent heading] (render-body body indent heading () nil))
+  ([body indent heading tags uid]
    (let [tree (markup-parser (process-body body))]
      (if (insta/failure? tree)
        (throw (ex-info "parse error" tree))
        (let [html (tree-to-html tree)
-             attrs (if (empty? tags) {} {:class (s/join " " tags)})]
+             attrs (merge
+                    (if uid {:id uid} {})
+                    (if (empty? tags) {} {:class (s/join " " tags)}))]
          (match html
            [:blockquote x]
            [:blockquote attrs x]
@@ -412,7 +432,7 @@
       kids
       (if (s/starts-with? body "**Tags**")
         ()
-        (list (render-body body indent (:block/heading x) tags)
+        (list (render-body body indent (:block/heading x) tags (:block/uid x))
               (if (not (empty? kids))
                 [:div.indent kids]))))))
 
@@ -450,20 +470,17 @@
               (filter first))]
     (if (empty? them)
       ()
-      [:section.mt-2
-       [:h2 "References"]
+      [:section.references
        [:ul
         (for [[reftitle refs] them]
           (render-refs reftitle refs))]])))
 
 (defn render-page [node]
-  [:article
+  [:article.page
    [:section
-    [:h2 (render-inline (:node/title node))]
+    [:h1 (render-inline (:node/title node))]
     (map #(render-block % 0) (node :block/children))]
-   (if (empty? (node :block/_refs))
-     '()
-     (render-reference-list node))])
+   (render-reference-list node)])
 
 (defn twitter [tag text]
   [:meta {:name (str "twitter:" tag) :content text}])
@@ -477,6 +494,7 @@
 
    (twitter "card" "summary")
    (twitter "site" "@meekaale")
+   (twitter "image" "https://goula.sh/square-logo.png")
 
    contents))
 
@@ -487,38 +505,45 @@
       {:title (s/replace (:block/string note) "Note:: " "")
        :summary (s/replace (:block/string first-block) "#.Summary " "")})))
 
+(defn breadcrumb [& xs]
+  (interpose " • " (filter identity xs)))
+
+(defn emojify-title [title]
+  (-> title
+      (s/replace "[[books]]" "📙")
+      (s/replace "[[articles]]" "📰")))
+
 (defn single-page [node]
   (let [title (:node/title node)]
     (println "Rendering" (:block/uid node) title)
-    (html-page title
+    (html-page (emojify-title title)
                (match (:type (page-type title))
                  :daily-note
                  (if-let [info (daily-note-info node)]
                    (list
-                    (twitter "title" (process-body (:title info)))
-                    (twitter "description" (process-body (:summary info))))
+                    (twitter "title" (emojify-title (:title info)))
+                    (twitter "description" (emojify-title (:summary info))))
                    (list
-                    (twitter "title" (process-body title))))
+                    (twitter "title" (emojify-title title))))
                  :book
                  (list
-                  (twitter "title" title)
-                  (twitter "description" (str "@meekaale's highlights from " title)))
+                  (twitter "title" (emojify-title title))
+                  (twitter "description" (str "Highlights from " (emojify-title title))))
                  :article
                  (list
                   (twitter "title" title)
-                  (twitter "description" (str "@meekaale's highlights from " title)))
+                  (twitter "description" (str "Highlights from " (emojify-title title))))
                  _ ())
 
-               [:title (str title " - @meekaale")]
+               [:title (str (emojify-title title) " - " website-name)]
                [:header
-                [:a {:href "/" } "@meekaale"]
-                (match (:type (page-type title))
-                  :daily-note ()
-                  :book (list " » " [:a {:href "/books/"} "Books"])
-                  :article (list " » " [:a {:href "/articles/"} "Articles"])
-                  :topic (list " » " [:a {:href "/topics/"} "Topic"]))
-                " » "
-                (render-inline title)]
+                (breadcrumb
+                 [:a {:href "/" } website-name]
+                 (match (:type (page-type title))
+                   :daily-note nil
+                   :book (list [:a {:href "/books/"} "Books"])
+                   :article (list [:a {:href "/articles/"} "Articles"])
+                   :topic nil))]
                (render-page node))))
 
 (def all-pages
@@ -529,14 +554,16 @@
              (single-page node))])))
 
 (defn index-page [ctx]
-  (html-page "@meekaale"
-     [:title "@meekaale"]
-     [:header.flex.space-between
-      "@meekaale"
-      [:div.right.flex.gap-1
-       [:a {:href "/books/"} "Books"]
-       [:a {:href "/articles/"} "Articles"]
-       ]]
+  (html-page
+   "@meekaale"
+   (list
+    (twitter "title" "goula.sh")
+    (twitter "description" "Notes and ramblings by @meekaale."))
+   [:title website-name]
+     [:header
+      (breadcrumb
+       [:span website-name]
+       "Welcome")]
      [:section.article-list
       (for [[uid date title summary] daily-notes]
         [:article
@@ -547,8 +574,9 @@
          [:div (render-inline summary)]
          (let [mentions (pages-mentioned-by uid)]
            (if (not (empty? mentions))
-             [:div.mentions-list.small "🔗"
-              [:ul
+             [:div.mentions-list.small.mt-1.flex.gap-r1
+              [:span "🔗"]
+              [:ul.flex.wrap.gap-r1
                (for [topic mentions]
                  (do
                    [:li (render-inline (str "[[" topic "]]"))]))]]))
@@ -561,41 +589,48 @@
    all-pages
    (stasis/slurp-directory "resources/static/" #".")
    {"/articles/"
-    (html-page (str "@meekaale" " » " "Articles")
-     [:title "@meekaale" " » " "Articles"]
-     [:header
-      [:a {:href "/" } "@meekaale"]
-      " » " "Articles"]
-     [:article
-      [:p "These article pages contain my Instapaper highlights."]
-      [:ul.flex.gap-1
-       (for [x all-articles]
-         (let [title (x :node/title)]
-           [:li
-            [:div
-             (let [author (page-author-markup x)]
-               (render-inline author))]
-            [:div
-             [:a {:href (str "/" (slug title) "/")} (render-inline title true)]]
-            ]))]])}
+    (html-page (str website-name " » " "Articles")
+               (list
+                (twitter "title" "goula.sh: quotes from articles")
+                (twitter "description" "See what @meekaale's been reading."))
+
+               [:title website-name " » " "Articles"]
+               [:header
+                (breadcrumb
+                 [:a {:href "/" } website-name]
+                 "Articles")]
+               [:article.wide
+                [:table
+                 (for [x all-articles]
+                   (let [title (x :node/title)]
+                     [:tr
+                      [:td
+                       [:a {:href (str "/" (slug title) "/")} (render-inline title true)]]
+                      [:td
+                       (let [author (page-author-markup x)]
+                         (render-inline author))]
+                      ]))]])}
    {"/books/"
-    (html-page (str "@meekaale" " » " "Books")
-     [:title "@meekaale" " » " "Books"]
-     [:header
-      [:a {:href "/" } "@meekaale"]
-      " » " "Books"]
-     [:article
-      [:p "These book pages contain my Kindle highlights."]
-      [:ul.flex.column.gap-1.mt-2
-       (for [x all-books]
-         (let [title (x :node/title)]
-           [:li
-            [:div
-             (let [author (page-author-markup x)]
-               (render-inline author))]
-            [:div
-             [:a {:href (str "/" (slug title) "/")} (render-inline title true)]]
-            ]))]])}
+    (html-page (str website-name " » " "Books")
+               (list
+                (twitter "title" "goula.sh: quotes from books")
+                (twitter "description" "See what @meekaale's been reading."))
+               [:title website-name " » " "Books"]
+               [:header
+                (breadcrumb
+                 [:a {:href "/" } website-name]
+                 "Books")]
+               [:article.wide
+                [:table
+                 (for [x all-books]
+                   (let [title (x :node/title)]
+                     [:tr
+                      [:td
+                       [:a {:href (str "/" (slug title) "/")} (render-inline title true)]]
+                      [:td
+                       (let [author (page-author-markup x)]
+                         (render-inline author))]
+                      ]))]])}
    {"/index.html" index-page}))
 
 (def app (stasis/serve-pages pages))
