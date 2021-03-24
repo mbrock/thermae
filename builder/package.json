@@ -1,0 +1,11 @@
+{
+  "name": "thermae-builder",
+  "version": "1.0.0",
+  "main": "index.js",
+  "author": "Mikael Brockman",
+  "license": "AGPL-3.0",
+  "private": false,
+  "dependencies": {
+    "puppeteer": "^8.0.0"
+  }
+}
