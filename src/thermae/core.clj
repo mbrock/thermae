@@ -667,8 +667,7 @@
           (render-inline title true)]]
         [:ul
          (for [x (take 3 (filter adequate-quote? children))]
-           [:a {:href (str "/" (slug title) "/#" (:block/uid x))}
-            (render-body (:block/string x) 0 nil nil nil)])
+           (render-body (:block/string x) 0 nil nil nil))
          ]
         ]
        )
