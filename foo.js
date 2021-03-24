@@ -28,5 +28,20 @@ function fix2 () {
    }
 }
 
+//fix2()
 
-fix2()
+function hmm () {
+  let nodes = roamAlphaAPI.q(`
+    [:find (pull ?x [*])
+      :where [?x :block/uid]
+        (not [?x :node/title])
+        (not [?x :block/page])
+        [_ :block/children ?x]]
+`)
+
+  for (let [x] of nodes) {
+    console.log(x.string)
+  }
+}
+
+hmm()

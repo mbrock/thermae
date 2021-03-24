@@ -18,9 +18,7 @@
 (def website-name "goula.sh")
 
 (def read-db #(edn/read-string {:readers d/data-readers} %))
-(def db (->> "mikaelogy.edn" io/resource slurp read-db))
-
-(defn query [q & xs] (apply d/q (concat (list q db) xs)))
+(def raw-db (->> "mikaelogy.edn" io/resource slurp read-db))
 
 (def page-pull
   '[:node/title
@@ -28,6 +26,8 @@
     :block/string
     :block/order
     :block/heading
+    :block/page
+    :create/time
     {:block/page [:node/title]}
     {:block/refs [:node/title]}
     {:block/_refs
@@ -35,6 +35,34 @@
       {:block/page [:node/title]}]}
     :block/children
     {:block/children ...}])
+
+(def ancestor-rule '[[(ancestor ?b ?a)
+                      [?a :block/children ?b]]
+                     [(ancestor ?b ?a)
+                      [?parent :block/children ?b]
+                      (ancestor ?parent ?a)]])
+
+(defn orphans [db]
+  (d/q
+   '[:find ?x ?page
+     :in $ %
+     :where [?x :block/uid ?uid]
+     (not [?x :node/title])
+     (not [?x :block/page])
+     [_ :block/children ?x]
+     (ancestor ?x ?page)
+     [?page :node/title ?title]
+     ]
+   db
+   ancestor-rule))
+
+(def fixed-db
+  (d/db-with raw-db
+             (vec
+              (for [[orphan page] (orphans raw-db)]
+                [:db/add orphan :block/page page]))))
+
+(defn query [q & xs] (apply d/q (concat (list q fixed-db) xs)))
 
 (def everything
   (map first
@@ -64,6 +92,51 @@
     (map #(nodes-by-title %)
          (query '[:find [?x ...] :where [?n :node/title ?x] [?n :block/refs ?r] [?r :node/title "articles"]]))))
 
+(defn day-uid? [uid]
+  (boolean (re-matches #"(..)-(..)-(....)" uid)))
+
+(def lotta-pages
+  (sort-by :create/time
+    (map first
+         (query '[:find (pull ?x [*]) :where [?x :node/title]]))))
+
+(def uid-day-formatter
+  (java.time.format.DateTimeFormatter/ofPattern "MM-dd-yyyy"))
+
+(def pretty-day-formatter
+  (java.time.format.DateTimeFormatter/ofPattern "E, d MMM yyyy"))
+
+(defn parse-day-uid [uid]
+  (java.time.LocalDate/parse uid uid-day-formatter))
+
+(defn pretty-date [date]
+  (.format date pretty-day-formatter))
+
+(def weekly-quotes
+  (take 10 (sort-by :date #(compare %2 %1)
+                   (map (fn [[x]]
+                          {:date (parse-day-uid
+                                  (:block/uid
+                                   (first (filter #(day-uid? (:block/uid %)) (:block/refs x)))))
+                           :title (:node/title (:block/page x))
+                           :children (:block/children x)
+                           }
+                          )
+                        (filter (fn [[x]]
+                                  (or (s/starts-with? (:block/string x) "Highlights first synced")
+                                      (s/starts-with? (:block/string x) "New highlights added")))
+                          (query
+                           '[:find
+                             (pull ?x [:block/uid
+                                       :block/string
+                                       :block/page {:block/page [:node/title]}
+                                       :block/children {:block/children [:block/uid :block/string]}
+                                       :block/refs {:block/refs [:block/uid]}])
+                             :where
+                             [?x :block/string ?s]
+                             [?x :block/page]
+                             ]))))))
+
 (defn change-date-format [date]
   (match (re-matches #"(..)-(..)-(....)" date)
     [_ m d y] (s/join "-" [y m d])
@@ -82,6 +155,7 @@
 
 (defn process-body [x]
   (-> x
+      (s/replace #"(\D)\.[0-9]+\b" "$1.")
       (s/replace #"\{\{word-count\}\}" "")
       (s/replace #" \(\[Location.*?\]\(.*?\)\)" "")
       (s/replace #"Highlights first synced by #Readwise (.*)" "Highlights from $1.")
@@ -129,12 +203,6 @@
 ;;                :where [?e :node/title ?title]]
 ;;              db title)]
 ;;     (first (first it))))
-
-(def ancestor-rule '[[(ancestor ?b ?a)
-                      [?a :block/children ?b]]
-                     [(ancestor ?b ?a)
-                      [?parent :block/children ?b]
-                      (ancestor ?parent ?a)]])
 
 (defn title->uid [title]
   (:block/uid (nodes-by-title title)))
@@ -201,15 +269,15 @@
 
 (defn find-block [uid]
   (let [it
-        (d/q '[
-               :find (pull ?e [:block/string
-                               :db/id
-                               :block/page
-                               {:block/page [:node/title]}
-                               :block/children {:block/children ...}])
-               :in $ ?uid
-               :where [?e :block/uid ?uid]]
-             db uid)]
+        (query '[
+                 :find (pull ?e [:block/string
+                                 :db/id
+                                 :block/page
+                                 {:block/page [:node/title]}
+                                 :block/children {:block/children ...}])
+                 :in $ ?uid
+                 :where [?e :block/uid ?uid]]
+               uid)]
     (first (first it))))
 
 (def foo
@@ -235,7 +303,7 @@
 
     url = #'https?:.*'
 
-    inline = (classtag | blockref | alias | xlink | link | img | video | parenthesis | text)+
+    inline = ((classtag | blockref | alias | xlink | link | img | video) / (parenthesis | text))+
 
     parenthesis = <'('> inline <')'>
 
@@ -471,6 +539,7 @@
     (if (empty? them)
       ()
       [:section.references
+       [:h1.semibold.mb-1 "Incoming Links"]
        [:ul
         (for [[reftitle refs] them]
           (render-refs reftitle refs))]])))
@@ -494,7 +563,7 @@
 
    (twitter "card" "summary")
    (twitter "site" "@meekaale")
-   (twitter "image" "https://goula.sh/square-logo.png")
+   (twitter "image" "https://goula.sh/logo-square.png")
 
    contents))
 
@@ -553,6 +622,9 @@
            (fn [context]
              (single-page node))])))
 
+(defn adequate-quote? [block]
+  (> (count (re-seq #" " (:block/string block))) 10))
+
 (defn index-page [ctx]
   (html-page
    "@meekaale"
@@ -560,34 +632,54 @@
     (twitter "title" "goula.sh")
     (twitter "description" "Notes and ramblings by @meekaale."))
    [:title website-name]
-     [:header
-      (breadcrumb
-       [:span website-name]
-       "Welcome")]
-     [:section.article-list
-      (for [[uid date title summary] daily-notes]
-        [:article
-         [:div.small.date date]
-         [:h2
-          [:a.semibold {:href (str "/" (slug date) "/")}
-           (render-inline title true)]]
-         [:div (render-inline summary)]
-         (let [mentions (pages-mentioned-by uid)]
-           (if (not (empty? mentions))
-             [:div.mentions-list.small.mt-1.flex.gap-r1
-              [:span "🔗"]
-              [:ul.flex.wrap.gap-r1
-               (for [topic mentions]
-                 (do
-                   [:li (render-inline (str "[[" topic "]]"))]))]]))
+   [:header
+    (breadcrumb
+     [:span website-name]
+     "Welcome")]
+
+   [:div.page
+    [:section.article-list
+     [:h1.mb-1.semibold "Daily Notes"]
+     (for [[uid date title summary] daily-notes]
+       [:article
+        [:div.small.date date]
+        [:h2
+         [:a.semibold {:href (str "/" (slug date) "/")}
+          (render-inline title true)]]
+        [:div (render-inline summary)]
+        (let [mentions (pages-mentioned-by uid)]
+          (if (not (empty? mentions))
+            [:div.mentions-list.small.mt-1.flex.gap-r1
+             [:span "🔗"]
+             [:ul.flex.wrap.gap-r1
+              (for [topic mentions]
+                (do
+                  [:li (render-inline (str "[[" topic "]]"))]))]]))
+        ]
+       )]
+    [:section.article-list
+     [:h1.semibold.mb-1 "Recent Highlights"]
+     (for [{date :date title :title children :children} weekly-quotes]
+       [:article
+        [:div.small.date (pretty-date date)]
+        [:h2
+         [:a.semibold {:href (str "/" (slug title) "/")}
+          (render-inline title true)]]
+        [:ul
+         (for [x (take 3 (filter adequate-quote? children))]
+           [:a {:href (str "/" (slug title) "/#" (:block/uid x))}
+            (render-body (:block/string x) 0 nil nil nil)])
          ]
-        )]
-     ))
+        ]
+       )
+     ]
+    ]
+   ))
 
 (defn pages []
   (merge
    all-pages
-   (stasis/slurp-directory "resources/static/" #".")
+   (stasis/slurp-directory "resources/static/" #"\.css$")
    {"/articles/"
     (html-page (str website-name " » " "Articles")
                (list
