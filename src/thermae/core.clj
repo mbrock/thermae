@@ -17,88 +17,82 @@
 
 (def website-name "goula.sh")
 
-(def read-db #(edn/read-string {:readers d/data-readers} %))
-(def raw-db (->> "mikaelogy.edn" io/resource slurp read-db))
+(defn slurp-resource [path] (->> path io/resource slurp))
+
+(defn read-datascript-edn [string]
+  (edn/read-string {:readers d/data-readers} string))
+
+(def raw-db
+  (read-datascript-edn (slurp-resource "mikaelogy.edn")))
+
+(def markup-parser
+  (insta/parser (slurp-resource "markup-grammar.txt")))
 
 (def page-pull
   '[:node/title
+    :create/time
     :block/uid
     :block/string
     :block/order
     :block/heading
-    :block/page
-    :create/time
     {:block/page [:node/title]}
-    {:block/refs [:node/title]}
+    {:block/refs [:block/uid :node/title]}
     {:block/_refs
      [:block/uid :block/string
       {:block/page [:node/title]}]}
-    :block/children
     {:block/children ...}])
 
-(def ancestor-rule '[[(ancestor ?b ?a)
-                      [?a :block/children ?b]]
-                     [(ancestor ?b ?a)
-                      [?parent :block/children ?b]
-                      (ancestor ?parent ?a)]])
+(def ancestor-rule
+  '[[(ancestor ?b ?a)
+     [?a :block/children ?b]]
+    [(ancestor ?b ?a)
+     [?parent :block/children ?b]
+     (ancestor ?parent ?a)]])
 
-(defn orphans [db]
+(defn pageless-blocks [db]
   (d/q
    '[:find ?x ?page
      :in $ %
-     :where [?x :block/uid ?uid]
+     :where
+     [?x :block/uid ?uid]
      (not [?x :node/title])
      (not [?x :block/page])
      [_ :block/children ?x]
      (ancestor ?x ?page)
-     [?page :node/title ?title]
-     ]
+     [?page :node/title ?title]]
    db
    ancestor-rule))
 
 (def fixed-db
   (d/db-with raw-db
              (vec
-              (for [[orphan page] (orphans raw-db)]
-                [:db/add orphan :block/page page]))))
+              (for [[block page] (pageless-blocks raw-db)]
+                [:db/add block :block/page page]))))
 
-(defn query [q & xs] (apply d/q (concat (list q fixed-db) xs)))
+(defn query [q & xs]
+  (apply d/q (concat (list q fixed-db) xs)))
 
-(def everything
-  (map first
-       (query
-        '[:find (pull ?e pattern)
-          :in $ pattern
-          :where [?e :node/title]]
-        page-pull)))
+(def pages-by-title
+  (let [pages (query
+               '[:find (pull ?e pattern)
+                 :in $ pattern
+                 :where [?e :node/title]]
+               page-pull)]
+    (into {}
+          (for [[x] pages]
+            [(:node/title x) x]))))
 
-(def nodes-by-title (into {} (for [x everything] [(:node/title x) x])))
-
-(defn page-author-markup [page]
-  (s/replace
-   (:block/string
-    (first
-     (filter #(s/starts-with? (:block/string %) "Author:: ")
-       (:block/children page))))
-   #"^Author:: " ""))
-
-(def all-books
-  (sort-by page-author-markup
-    (map #(nodes-by-title %)
-         (query '[:find [?x ...] :where [?n :node/title ?x] [?n :block/refs ?r] [?r :node/title "books"]]))))
-
-(def all-articles
-  (sort-by page-author-markup
-    (map #(nodes-by-title %)
-         (query '[:find [?x ...] :where [?n :node/title ?x] [?n :block/refs ?r] [?r :node/title "articles"]]))))
+(defn page-attribute [attr page]
+  (let [prefix (str attr ":: ")
+        string (->> page :block/children
+                    (map :block/string)
+                    (filter #(s/starts-with? % prefix))
+                    first)]
+    (if string
+      (s/replace string prefix ""))))
 
 (defn day-uid? [uid]
   (boolean (re-matches #"(..)-(..)-(....)" uid)))
-
-(def lotta-pages
-  (sort-by :create/time
-    (map first
-         (query '[:find (pull ?x [*]) :where [?x :node/title]]))))
 
 (def uid-day-formatter
   (java.time.format.DateTimeFormatter/ofPattern "MM-dd-yyyy"))
@@ -112,30 +106,35 @@
 (defn pretty-date [date]
   (.format date pretty-day-formatter))
 
-(def weekly-quotes
-  (take 10 (sort-by :date #(compare %2 %1)
-                   (map (fn [[x]]
-                          {:date (parse-day-uid
-                                  (:block/uid
-                                   (first (filter #(day-uid? (:block/uid %)) (:block/refs x)))))
-                           :title (:node/title (:block/page x))
-                           :children (:block/children x)
-                           }
-                          )
-                        (filter (fn [[x]]
-                                  (or (s/starts-with? (:block/string x) "Highlights first synced")
-                                      (s/starts-with? (:block/string x) "New highlights added")))
-                          (query
-                           '[:find
-                             (pull ?x [:block/uid
-                                       :block/string
-                                       :block/page {:block/page [:node/title]}
-                                       :block/children {:block/children [:block/uid :block/string]}
-                                       :block/refs {:block/refs [:block/uid]}])
-                             :where
-                             [?x :block/string ?s]
-                             [?x :block/page]
-                             ]))))))
+(defn recent-quotes-query []
+  (query
+   '[:find (pull ?x pattern)
+     :in $ pattern
+     :where
+     [?x :block/string ?s]
+     (or
+      [(clojure.string/starts-with? ?s "Highlights first synced")]
+      [(clojure.string/starts-with? ?s "New highlights added")])]
+   page-pull))
+
+(defn days-referenced-by-block [block]
+  (->> block
+       :block/refs
+       (map :block/uid)
+       (filter day-uid?)
+       (map parse-day-uid)))
+
+(defn block-page-title [block]
+  (-> block :block/page :node/title))
+
+(def recent-quotes
+  (->> (recent-quotes-query)
+       (map first)
+       (filter #(not (s/starts-with? (block-page-title %)
+                                     "[[podcasts]]")))
+       (sort-by #(first (days-referenced-by-block %)))
+       (reverse)
+       (take 10)))
 
 (defn change-date-format [date]
   (match (re-matches #"(..)-(..)-(....)" date)
@@ -146,7 +145,7 @@
   (if (re-matches #"[A-Z].*? [0-9]+(th|nd|st|rd), [0-9]{4}" title)
     {:type :daily-note :href (str "days/"
                                   (change-date-format
-                                   (:block/uid (nodes-by-title title))))}
+                                   (:block/uid (pages-by-title title))))}
     (match (re-matches #"\[\[(.*?)\]\] (.*)" title)
       [_ "books" x]    {:type :book :href (str "books/" (->slug x))}
       [_ "articles" x] {:type :article :href (str "articles/" (->slug x))}
@@ -188,84 +187,11 @@
       )))
   )
 
-;; (defn find-node [title]
-;;   (let [it
-;;         (d/q '[
-;;                :find (pull ?e [:node/title
-;;                                :block/uid
-;;                                :block/string
-;;                                :block/order
-;;                                :block/heading
-;;                                :block/refs {:block/refs [*]}
-;;                                {:block/_refs [:block/uid :block/string {:block/page [:node/title]}]}
-;;                                 :block/children {:block/children ...}])
-;;                :in $ ?title
-;;                :where [?e :node/title ?title]]
-;;              db title)]
-;;     (first (first it))))
-
 (defn title->uid [title]
-  (:block/uid (nodes-by-title title)))
+  (:block/uid (pages-by-title title)))
 
 (def interesting-page-title?
   (complement #{".Summary" "articles" "books" "video" "Note"}))
-
-(defn pages-mentioned-by-old [uid]
-  (sort (filter interesting-page-title?
-          (query
-           '[:find [?title ...]
-             :in $ % ?uid
-             :where
-             [?root :block/uid ?uid]
-             (ancestor ?block ?root)
-             [?block :block/refs ?ref]
-             [?ref :node/title ?title]
-             ]
-           ancestor-rule uid
-           ))))
-
-(defn block-page [uid]
-  (query '[:find ?title . :in $ ?uid %
-           :where
-           [?block :block/uid ?uid]
-           [?page :node/title ?title]
-           (ancestor ?block ?page)
-           ]
-         uid ancestor-rule))
-
-(def orphans
-  (query '[:find ?x ?parent
-           :where
-           [?x :block/string]
-           (not [?x :block/parents])
-           (not [?x :node/title])
-           [?parent :block/children ?x]
-           ]))
-
-(def parentless
-  (query '[:find ?x ?uid ?order ?s :where
-           [?x :block/string ?s]
-           [?x :block/order ?order]
-           [?x :block/uid ?uid]
-           (not [?x :block/parents])
-           (not [?x :node/title])
-           ]))
-
-(defn find-parent [id]
-  (query '[:find ?uid . :in $ ?id :where
-           [?y :block/uid ?uid]
-           [?y :block/children ?id]] id))
-
-(defn find-parents [id]
-  (if-let [x (find-parent id)]
-    (conj (find-parents x) x)
-    []))
-
-(defn hmm []
-  (filter identity
-    (for [[x uid order s] parentless]
-      (let [parents (reverse (find-parents x))]
-        (if (seq parents) {:uid uid :parent (first parents) :order order :text s})))))
 
 (defn find-block [uid]
   (let [it
@@ -280,65 +206,6 @@
                uid)]
     (first (first it))))
 
-(def foo
-  '[
-    :find (pull ?y [*])
-    :where
-    [?y :block/page ?page]
-    (not [?y :block/heading])
-    [?x :block/page ?page]
-    [?x :block/refs ?attr]
-    [?x :block/refs ?value]
-    [?attr :node/title "Category"]
-    [?value :node/title "books"]
-    ])
-
-(def markup-parser
-  (insta/parser "
-    root = attr | blockquote | !'> ' paragraph
-
-    attr       = word <':: '> (url / inline)
-    blockquote = <'> '> inline
-    paragraph  = inline
-
-    url = #'https?:.*'
-
-    inline = ((classtag | blockref | alias | xlink | link | img | video) / (parenthesis | text))+
-
-    parenthesis = <'('> inline <')'>
-
-    classtag = <'#.'> #'[a-zA-Z]+'
-
-    word   = #'[^!\\*\\[\\]\\(\\)\\_:{}#]+'
-    symbol =  #'[!\\*\\[\\]\\(\\)\\_:{}#]'
-
-    uid = #'[a-zA-Z0-9-_]+'
-
-    <text> = (word | italic | bold) / symbol
-
-    blockref = <'(('> uid <'))'>
-    alias = <'['> text <']'> <'((('> uid <')))'>
-    xlink = <'['> text <']'> <'('> #'[^)]+' <')'>
-    link  = <'[['> inline <']]'>
-    img   = <#'!\\[.*?\\]\\('> #'[^)]+' <')'>
-
-    italic = <'__'> (!'__' text) <'__'>
-    bold   = <'**'> (!'__' text) <'**'>
-
-    video = <'{{[[video]]: '> #'[^}]+' <'}}'>
-  "))
-
-(defn test-1 []
-  (markup-parser "foo:: hello")
-
-  (markup-parser "> Focusing applies to more than personal problems. Creativity, originality and depth require something like focusing in any field: the capacity to attend to what is not yet verbalized. ([Location 2977](https://readwise.io/to_kindle?action=open&asin=B004CLYCSO&location=2977))")
-
-  (markup-parser "> It is good to love as many things as one can, for therein lies true strength, and those who love much, do much and accomplish much, and whatever is done with love is done well. [*](((ftG7SOukS)))")
-
-  (markup-parser "> To lure back these Homeric gods is a saving possibility after the death of God: it would allow us to survive the breakdown of monotheism while resisting the descent into a nihilistic existence. [*](((nvhXa_-Ve)))")
-
-  (markup-parser "> Talk of efficiency and sustainability are simply artifacts of the relentless use of fossil fuels. In a solar economy, you could have a disco in every single room of your house and way fewer lifeforms would suffer, perhaps vanishingly few, compared to the act of simply turning on the lights in an oil economy. You could have strobes and decks and lasers all day and night to your heart’s content. [*](((j0n9WOj6-)))"))
-
 (defn transform-tree-to-link [tree]
   (let [go transform-tree-to-link]
     (match tree
@@ -347,9 +214,6 @@
       [:symbol x] x
       [:link x] (str "[[" (go x) "]]")
       _ (throw (ex-info "transform-tree-to-link" {:tree tree})))))
-
-(defn namespaced-title? [x]
-  (re-matches #".+/.+" x))
 
 (defn link-href [x]
   (str "/" (slug (transform-tree-to-link x))))
@@ -412,17 +276,11 @@
 
       [:inline & xs] (map go xs)
 
-      [:link ([:inline [:word (title :guard namespaced-title?)]] :as x)]
-      [:a.ref.ns {:href (link-href x)}
-       (render-inline title)]
-
       [:link [:inline [:word "books"]]]
-      (if no-links? "📙"
-          [:a.ref {:href "/books"} "📙"])
+      "📙"
 
       [:link [:inline [:word "articles"]]]
-      (if no-links? "📰"
-          [:a.ref {:href "/articles"} "📰"])
+      "📰"
 
       [:link x]
       (if no-links? (go x)
@@ -504,8 +362,6 @@
               (if (not (empty? kids))
                 [:div.indent kids]))))))
 
-(defn preify [x] [:pre (with-out-str (pprint (render-block x 0)))])
-
 (defn render-refs [title xs]
   [:li
    [:div.linkref
@@ -527,9 +383,6 @@
 
                        ]
                    title))))
-
-(defn debug-page [title]
-  (prerender-block (nodes-by-title title)))
 
 (defn render-reference-list [node]
   (let [them (->> (:block/_refs node)
@@ -606,19 +459,13 @@
 
                [:title (str (emojify-title title) " - " website-name)]
                [:header
-                (breadcrumb
-                 [:a {:href "/" } website-name]
-                 (match (:type (page-type title))
-                   :daily-note nil
-                   :book (list [:a {:href "/books/"} "Books"])
-                   :article (list [:a {:href "/articles/"} "Articles"])
-                   :topic nil))]
+                (breadcrumb [:a {:href "/" } website-name])]
                (render-page node))))
 
 (def all-pages
   (into {}
-        (for [node everything]
-          [(str "/" (:href (page-type (:node/title node))) "/")
+        (for [[title node] pages-by-title]
+          [(str "/" (:href (page-type title)) "/")
            (fn [context]
              (single-page node))])))
 
@@ -659,69 +506,23 @@
        )]
     [:section.article-list
      [:h1.semibold.mb-1 "Recent Highlights"]
-     (for [{date :date title :title children :children} weekly-quotes]
-       [:article
-        [:div.small.date (pretty-date date)]
-        [:h2
-         [:a.semibold {:href (str "/" (slug title) "/")}
-          (render-inline title true)]]
-        [:ul
-         (for [x (take 3 (filter adequate-quote? children))]
-           (render-body (:block/string x) 0 nil nil nil))
-         ]
-        ]
-       )
-     ]
-    ]
-   ))
+     (for [block recent-quotes]
+       (let [date (first (days-referenced-by-block block))
+             title (-> block :block/page :node/title)
+             children (-> block :block/children)]
+         [:article
+          [:div.small.date (pretty-date date)]
+          [:h2
+           [:a.semibold {:href (str "/" (slug title) "/")}
+            (render-inline title true)]]
+          [:ul
+           (for [x (take 3 (filter adequate-quote? children))]
+             (render-body (:block/string x) 0 nil nil nil))]]))]]))
 
 (defn pages []
   (merge
    all-pages
    (stasis/slurp-directory "resources/static/" #"\.css$")
-   {"/articles/"
-    (html-page (str website-name " » " "Articles")
-               (list
-                (twitter "title" "goula.sh: quotes from articles")
-                (twitter "description" "See what @meekaale's been reading."))
-
-               [:title website-name " » " "Articles"]
-               [:header
-                (breadcrumb
-                 [:a {:href "/" } website-name]
-                 "Articles")]
-               [:article.wide
-                [:table
-                 (for [x all-articles]
-                   (let [title (x :node/title)]
-                     [:tr
-                      [:td
-                       [:a {:href (str "/" (slug title) "/")} (render-inline title true)]]
-                      [:td
-                       (let [author (page-author-markup x)]
-                         (render-inline author))]
-                      ]))]])}
-   {"/books/"
-    (html-page (str website-name " » " "Books")
-               (list
-                (twitter "title" "goula.sh: quotes from books")
-                (twitter "description" "See what @meekaale's been reading."))
-               [:title website-name " » " "Books"]
-               [:header
-                (breadcrumb
-                 [:a {:href "/" } website-name]
-                 "Books")]
-               [:article.wide
-                [:table
-                 (for [x all-books]
-                   (let [title (x :node/title)]
-                     [:tr
-                      [:td
-                       [:a {:href (str "/" (slug title) "/")} (render-inline title true)]]
-                      [:td
-                       (let [author (page-author-markup x)]
-                         (render-inline author))]
-                      ]))]])}
    {"/index.html" index-page}))
 
 (def app (stasis/serve-pages pages))

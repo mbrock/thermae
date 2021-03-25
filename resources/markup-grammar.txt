@@ -1,0 +1,31 @@
+root = attr | blockquote | !'> ' paragraph
+
+attr       = word <':: '> (url / inline)
+blockquote = <'> '> inline
+paragraph  = inline
+
+url = #'https?:.*'
+
+inline = ((classtag | blockref | alias | xlink | link | img | video) / (parenthesis | text))+
+
+parenthesis = <'('> inline <')'>
+
+classtag = <'#.'> #'[a-zA-Z]+'
+
+word   = #'[^!\*\[\]\(\)\_:{}#]+'
+symbol =  #'[!\*\[\]\(\)\_:{}#]'
+
+uid = #'[a-zA-Z0-9-_]+'
+
+<text> = (word | italic | bold) / symbol
+
+blockref = <'(('> uid <'))'>
+alias = <'['> text <']'> <'((('> uid <')))'>
+xlink = <'['> text <']'> <'('> #'[^)]+' <')'>
+link  = <'[['> inline <']]'>
+img   = <#'!\[.*?\]\('> #'[^)]+' <')'>
+
+italic = <'__'> (!'__' text) <'__'>
+bold   = <'**'> (!'__' text) <'**'>
+
+video = <'{{[[video]]: '> #'[^}]+' <'}}'>
