@@ -341,17 +341,14 @@
                 [(keyword (str "h" heading)) attrs html]
                 [:p attrs html])))))))
 
-(defn prerender-block [x]
-  (let [body (x :block/string)
-        kids (map prerender-block (x :block/children))]
-    (if (s/blank? body)
-      kids
-      (list (markup-parser (process-body body)) [:div.indent kids]))))
-
 (defn render-block [x indent]
   (let [body (x :block/string)
-        tags (map #(subs % 1) (filter (fn [x] (s/starts-with? x "."))
-                                (map :node/title (:block/refs x))))
+        tags (->> x
+                  :block/refs
+                  (map :node/title)
+                  (filter identity)
+                  (filter #(s/starts-with? % "."))
+                  (map #(subs % 1)))
         kids (map #(render-block % (inc indent))
                   (sort-by :block/order (x :block/children)))]
     (if (s/blank? body)
