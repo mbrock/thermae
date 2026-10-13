@@ -15,7 +15,7 @@
    [stasis.core :as stasis]
    [instaparse.core :as insta]))
 
-(def website-name "goula.sh")
+(def website-name (or (System/getenv "THERMAE_NAME") "mikaelogy"))
 (def base-path (or (System/getenv "THERMAE_BASE") ""))
 
 (defn slurp-resource [path] (->> path io/resource slurp))
@@ -414,7 +414,7 @@
 
    (twitter "card" "summary")
    (twitter "site" "@meekaale")
-   (twitter "image" "https://goula.sh/logo-square.png")
+   (twitter "image" "https://less.rest/mikaelogy/logo-square.png")
 
    contents))
 
@@ -474,7 +474,7 @@
   (html-page
    "@meekaale"
    (list
-    (twitter "title" "goula.sh")
+    (twitter "title" website-name)
     (twitter "description" "Notes and ramblings by @meekaale."))
    [:title website-name]
    [:header
