@@ -521,6 +521,10 @@
   (merge
    all-pages
    (stasis/slurp-directory "resources/static/" #"\.css$")
+   ;; Return files to Stasis so webfonts are copied as binary, never slurped as text.
+   (into {} (for [file (.listFiles (io/file "resources/static/fonts"))
+                  :when (s/ends-with? (.getName file) ".woff2")]
+              [(str "/fonts/" (.getName file)) (fn [_] file)]))
    {"/index.html" index-page}))
 
 (def app (stasis/serve-pages pages))

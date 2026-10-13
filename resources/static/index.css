@@ -1,11 +1,65 @@
+@font-face {
+  font-family: "Equity";
+  src: url("fonts/Equity-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Equity";
+  src: url("fonts/Equity-Italic.woff2") format("woff2");
+  font-weight: 400;
+  font-style: italic;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Equity";
+  src: url("fonts/Equity-Bold.woff2") format("woff2");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Equity";
+  src: url("fonts/Equity-BoldItalic.woff2") format("woff2");
+  font-weight: 700;
+  font-style: italic;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Equity Caps";
+  src: url("fonts/Equity-Caps.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Equity Caps";
+  src: url("fonts/Equity-CapsBold.woff2") format("woff2");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html { background: #fcfbf8; }
+
 body {
-  --sans-serif: "helvetica neue", helvetica, sans-serif;
-  --serif: "original garamond tl", georgia, "times new roman", times, serif;
+  --sans-serif: "Equity", Georgia, serif;
+  --serif: "Equity", Georgia, serif;
 
-  --semibold: 600;
+  --semibold: 700;
 
-  font: 16px/24px var(--sans-serif);
-  color: #222;
+  font: 18px/1.55 var(--sans-serif);
+  color: #292821;
+  overflow-wrap: anywhere;
+  font-synthesis: none;
   margin: 0 0 8em 0;
 }
 
@@ -19,22 +73,26 @@ header {
 }
 
 .page {
-  margin: 2em auto;
-  padding: 0 1em;
+  margin: 1.5em auto;
+  padding: 0 clamp(1rem, 3vw, 2rem);
+  gap: 2.5rem;
+  max-width: 84rem;
   display: flex;
   flex-wrap: wrap;
   justify-content: space-around;
 }
 
 .page > section {
+  flex: 1 1 28rem;
+  min-width: 0;
   max-width: 36em;
-  margin-bottom: 6em;
+  margin-bottom: 2em;
 }
 
 .article-list {
   max-width: 42em;
   margin: 0 auto;
-  padding: 0 1em;
+  padding: 0;
 }
 
 section.references { max-width: 30em; }
@@ -45,7 +103,20 @@ article.wide {
   justify-content: center;
 }
 
-a { text-decoration: none; }
+a {
+  color: #435f70;
+  text-decoration: none;
+  text-underline-offset: .16em;
+}
+
+a:hover { text-decoration: underline; }
+a:focus-visible { outline: 2px solid currentColor; outline-offset: 3px; }
+
+/* Lowercase selects the real small-cap glyphs in Equity's dedicated caps face. */
+a.ref, .linkref h3 a {
+  font-family: "Equity Caps", "Equity", Georgia, serif;
+  text-transform: lowercase;
+}
 
 h1, h2, h3 {
   font-size: inherit;
@@ -106,12 +177,12 @@ img {
   display: block;
   margin: 0 auto;
   max-width: 100%;
+  height: auto;
 }
 
 .hide { display: none; }
 
 .ref {
-  font-family: var(--sans-serif);
   text-decoration: none;
 }
 
@@ -204,11 +275,16 @@ iframe { width: 100%; }
 .gap-r1 > * { margin-right: 1em; }
 
 td, .mentions-list a {
-  text-overflow: ellipsis;
-  max-width: 25em;
-  white-space: nowrap;
-  overflow: hidden;
+  max-width: 100%;
+  white-space: normal;
 }
+
+.flex > * { min-width: 0; }
+.mentions-list > ul { flex: 1; }
+.mentions-list li { max-width: 100%; }
+table { width: 100%; table-layout: fixed; }
+pre { white-space: pre-wrap; }
+iframe { max-width: 100%; aspect-ratio: 16 / 9; height: auto; border: 0; }
 
 .mentions-list a {
   display: inline-block;
@@ -244,3 +320,12 @@ header > :first-child { font-weight: bold; }
 
 .references h3 { margin: 0 0 0.5em 0; }
 .references li { margin-bottom: 1em; }
+
+@media (max-width: 40rem) {
+  header { margin-bottom: 1.25em; flex-wrap: wrap; }
+  .page { margin-top: 1em; gap: 1.5rem; }
+  article { margin-bottom: 2.5em; }
+  article.wide { margin: 1em; min-width: 0; }
+  blockquote:not(.blockref), blockquote.blockref { margin-right: 0; padding: .5em .75em; }
+  div.indent { margin-left: .65em; }
+}

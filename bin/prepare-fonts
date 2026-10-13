@@ -1,0 +1,28 @@
+#!/usr/bin/env python3
+"""Convert the owner's licensed Equity fonts to webfonts; never commit the output.
+
+Requires fonttools and brotli (or: uv run --with fonttools --with brotli ...).
+"""
+import sys
+from pathlib import Path
+from fontTools.ttLib import TTFont
+
+source = Path(sys.argv[1]).expanduser() if len(sys.argv) > 1 else Path.home() / '.local/share/fonts'
+destination = Path(__file__).resolve().parent.parent / 'resources/static/fonts'
+faces = {
+    'Regular': 'Equity OT A Regular.otf',
+    'Italic': 'Equity OT A Italic.otf',
+    'Bold': 'Equity OT A Bold.otf',
+    'BoldItalic': 'Equity OT A Bold Italic.otf',
+    'Caps': 'Equity A Caps Regular.otf',
+    'CapsBold': 'Equity A Caps Bold.otf',
+}
+for filename in faces.values():
+    if not (source / filename).is_file():
+        sys.exit(f'Missing licensed font: {source / filename}')
+destination.mkdir(parents=True, exist_ok=True)
+for name, filename in faces.items():
+    with TTFont(source / filename) as font:
+        font.flavor = 'woff2'
+        font.save(destination / f'Equity-{name}.woff2')
+print(f'Prepared {len(faces)} webfonts in {destination} (gitignored).')
