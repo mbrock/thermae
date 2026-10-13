@@ -16,6 +16,7 @@
    [instaparse.core :as insta]))
 
 (def website-name "goula.sh")
+(def base-path (or (System/getenv "THERMAE_BASE") ""))
 
 (defn slurp-resource [path] (->> path io/resource slurp))
 
@@ -216,7 +217,7 @@
       _ (throw (ex-info "transform-tree-to-link" {:tree tree})))))
 
 (defn link-href [x]
-  (str "/" (slug (transform-tree-to-link x))))
+  (str base-path "/" (slug (transform-tree-to-link x))))
 
 (declare transform-tree)
 
@@ -245,7 +246,7 @@
             name (go-without-links (markup-parser content))]
         (if no-links? name
             [:blockquote.blockref
-             [:a {:title title :href (str "/" (slug title) "#" x)} name]]))
+             [:a {:title title :href (str base-path "/" (slug title) "#" x)} name]]))
 
       [:blockref [:uid x]]
       (let [it (find-block x)
@@ -253,7 +254,7 @@
             content (:block/string it)
             name (go-without-links (markup-parser content))]
         (if no-links? name
-            [:a {:class "blockref" :title title :href (str "/" (slug title) "#" x)} name]))
+            [:a {:class "blockref" :title title :href (str base-path "/" (slug title) "#" x)} name]))
 
       [:attr [:word "Note"] y]
       (list "📝 " (go y))
@@ -303,7 +304,7 @@
             content (:block/string it)
             name (go-without-links (markup-parser content))]
         (if no-links? name
-            [:a {:class "cite" :title "Go to quote" :href (str "/" (slug title) "#" x)} "*"]))
+            [:a {:class "cite" :title "Go to quote" :href (str base-path "/" (slug title) "#" x)} "*"]))
 
       [:xlink text url]
       (if no-links? (go text)
@@ -362,7 +363,7 @@
 (defn render-refs [title xs]
   [:li
    [:div.linkref
-    [:h3 [:a {:href (str "/" (slug title))} (render-inline title true)]]
+    [:h3 [:a {:href (str base-path "/" (slug title))} (render-inline title true)]]
     [:div
      (map (fn [x]
             (render-body (:block/string x) 0 nil)) xs)]]])
@@ -409,7 +410,7 @@
    [:meta {:charset "utf-8"}]
    [:meta {:name "viewport" :content "width=device-width, initial-scale=1"}]
 
-   [:link {:rel "stylesheet" :href "/index.css"}]
+   [:link {:rel "stylesheet" :href (str base-path "/index.css")}]
 
    (twitter "card" "summary")
    (twitter "site" "@meekaale")
@@ -456,7 +457,7 @@
 
                [:title (str (emojify-title title) " - " website-name)]
                [:header
-                (breadcrumb [:a {:href "/" } website-name])]
+                (breadcrumb [:a {:href (str base-path "/")} website-name])]
                (render-page node))))
 
 (def all-pages
@@ -488,7 +489,7 @@
        [:article
         [:div.small.date date]
         [:h2
-         [:a.semibold {:href (str "/" (slug date) "/")}
+         [:a.semibold {:href (str base-path "/" (slug date) "/")}
           (render-inline title true)]]
         [:div (render-inline summary)]
         (let [mentions (pages-mentioned-by uid)]
@@ -510,7 +511,7 @@
          [:article
           [:div.small.date (pretty-date date)]
           [:h2
-           [:a.semibold {:href (str "/" (slug title) "/")}
+           [:a.semibold {:href (str base-path "/" (slug title) "/")}
             (render-inline title true)]]
           [:ul
            (for [x (take 3 (filter adequate-quote? children))]
@@ -526,4 +527,4 @@
 
 (defn -main [& args]
   ;(stasis/empty-directory! "../meekaale")
-  (stasis/export-pages (pages) "../meekaale"))
+  (stasis/export-pages (pages) (or (System/getenv "THERMAE_OUT") "../meekaale")))
