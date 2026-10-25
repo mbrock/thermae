@@ -1,0 +1,40 @@
+#!/usr/bin/env python3
+"""Summarize Caddy JSON access/error logs without treating user agents as identity."""
+import argparse
+import collections
+import datetime
+import fileinput
+import json
+
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument("files", nargs="*", help="JSON logs (including .gz); stdin when omitted")
+parser.add_argument("--include-checks", action="store_true", help="include deployment smoke checks")
+args = parser.parse_args()
+counts = collections.Counter()
+times = []
+for line in fileinput.input(files=args.files or ("-",), openhook=fileinput.hook_compressed):
+    try:
+        entry = json.loads(line)
+    except ValueError:
+        continue
+    request = entry.get("request", {})
+    path = request.get("uri", "").split("?", 1)[0]
+    if request.get("host") != "less.rest" or not (
+        path == "/robots.txt" or path == "/mikaelogy" or path.startswith("/mikaelogy/")
+    ):
+        continue
+    headers = {key.lower(): value for key, value in request.get("headers", {}).items()}
+    agent = " ".join(headers.get("user-agent", ["(none)"]))
+    if not args.include_checks and "Mikaelogy-Check/" in agent:
+        continue
+    counts[(agent, entry.get("status"), path)] += 1
+    if entry.get("ts"):
+        times.append(entry["ts"])
+
+print(f"{sum(counts.values())} requests; user agents are self-reported, not verified identities")
+if times:
+    def utc(ts):
+        return datetime.datetime.fromtimestamp(ts, datetime.timezone.utc).isoformat()
+    print(f"UTC range: {utc(min(times))} to {utc(max(times))}")
+for (agent, status, path), count in counts.most_common():
+    print(f"{count:6}  {status!s:3}  {path}  {agent}")

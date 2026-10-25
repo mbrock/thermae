@@ -12,6 +12,7 @@
    [datascript.core :as d]
    [clojure.java.io :as io]
    [clojure.edn :as edn]
+   [thermae.markdown :as markdown]
    [stasis.core :as stasis]
    [instaparse.core :as insta]))
 
@@ -456,6 +457,8 @@
                  _ ())
 
                [:title (str (emojify-title title) " - " website-name)]
+               [:link {:rel "alternate" :type "text/markdown"
+                       :href (str base-path "/" (slug title) "/index.md")}]
                [:header
                 (breadcrumb [:a {:href (str base-path "/")} website-name])]
                (render-page node))))
@@ -470,18 +473,7 @@
 (defn adequate-quote? [block]
   (> (count (re-seq #" " (:block/string block))) 10))
 
-(defn index-page [ctx]
-  (html-page
-   "@meekaale"
-   (list
-    (twitter "title" website-name)
-    (twitter "description" "Notes and ramblings by @meekaale."))
-   [:title website-name]
-   [:header
-    (breadcrumb
-     [:span website-name]
-     "Welcome")]
-
+(defn index-body []
    [:div.page
     [:section.article-list
      [:h1.mb-1.semibold "Daily Notes"]
@@ -515,17 +507,61 @@
             (render-inline title true)]]
           [:ul
            (for [x (take 3 (filter adequate-quote? children))]
-             (render-body (:block/string x) 0 nil nil nil))]]))]]))
+             (render-body (:block/string x) 0 nil nil nil))]]))]])
+
+(defn index-page [ctx]
+  (html-page
+   "@meekaale"
+   (list
+    (twitter "title" website-name)
+    (twitter "description" "Notes and ramblings by @meekaale."))
+   [:title website-name]
+   [:link {:rel "alternate" :type "text/markdown" :href (str base-path "/index.md")}]
+   [:header (breadcrumb [:span website-name] "Welcome")]
+   (index-body)))
+
+(defn markdown-page [node]
+  (markdown/document
+   (list [:p [:a {:href (str base-path "/" (slug (:node/title node)) "/")} "HTML version"]]
+         (render-page node))))
+
+(defn markdown-index []
+  (markdown/document
+   (list [:h1 website-name]
+         [:p "Notes and ramblings by @meekaale."]
+         [:p [:a {:href (str base-path "/llms.txt")} "Complete page directory"]]
+         (index-body))))
+
+(defn llms-index []
+  (markdown/document
+   (list [:h1 website-name]
+         [:p "Notes and ramblings by @meekaale. These are published notes, book highlights, and linked topics."]
+         [:p "Every page has a Markdown version at its URL followed by index.md. "
+          "Page URLs also return Markdown to Claude, supported reading bots, or clients requesting text/markdown. "
+          "HTML and Markdown contain the same published content."]
+         [:p [:a {:href (str base-path "/index.md")} "Home page in Markdown"]]
+         (for [[kind label] [[:daily-note "Daily notes"] [:book "Books"]
+                             [:article "Articles"] [:topic "Topics"]]]
+           (list [:h2 label]
+                 [:ul (for [[title node] (sort-by key pages-by-title)
+                            :when (= kind (:type (page-type title)))]
+                        [:li [:a {:href (str base-path "/" (slug title) "/index.md")}
+                              (emojify-title title)]])])))))
 
 (defn pages []
   (merge
    all-pages
+   (into {} (for [[title node] pages-by-title]
+              [(str "/" (slug title) "/index.md") (fn [_] (markdown-page node))]))
    (stasis/slurp-directory "resources/static/" #"\.css$")
    ;; Return files to Stasis so webfonts are copied as binary, never slurped as text.
    (into {} (for [file (.listFiles (io/file "resources/static/fonts"))
                   :when (s/ends-with? (.getName file) ".woff2")]
               [(str "/fonts/" (.getName file)) (fn [_] file)]))
-   {"/index.html" index-page}))
+   {"/index.html" index-page
+    "/index.md" (fn [_] (markdown-index))
+    "/llms.txt" (fn [_] (llms-index))
+    "/robots.txt" (str "User-agent: *\nAllow: " base-path "/\n")}))
 
 (def app (stasis/serve-pages pages))
 

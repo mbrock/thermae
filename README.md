@@ -6,7 +6,7 @@ Clojure, Instaparse, Hiccup, and Stasis.
 ## Build and deploy Mikaelogy
 
 The private export belongs at `resources/mikaelogy.edn`. It is deliberately
-ignored by Git; never commit it or generated HTML containing its contents.
+ignored by Git; never commit it or generated HTML/Markdown containing its contents.
 
 ```sh
 bin/prepare-fonts
@@ -22,6 +22,51 @@ rsync -a --delete /tmp/mikaelogy/ /srv/mikaelogy/
 serves `/srv/mikaelogy` under `/mikaelogy`; these changes need no Caddy edits.
 Use a fresh output directory when replacing the source export, so stale pages
 are not retained. Keep generated sites outside the repository.
+
+## Crawlers and Markdown
+
+The export includes an `index.md` beside every HTML page, plus `llms.txt` with
+a directory of all published pages. Markdown uses the same rendered content
+as HTML, including links, block anchors, quotes, and incoming references.
+The raw EDN export is never served. HTML advertises its Markdown alternate.
+
+On less.rest, `deploy/mikaelogy.caddy` belongs inside the existing `less.rest`
+site block in place of its old Mikaelogy handler. It serves `/robots.txt`
+directly from the export so an unrelated application outage cannot block
+crawlers. The rules allow crawling, including Claude.
+
+The handler serves Markdown at ordinary page URLs to `Claude-User`,
+`Claude-SearchBot`, `ClaudeBot`, `ChatGPT-User`, `OAI-SearchBot`, `GPTBot`,
+`PerplexityBot`, and `Perplexity-User`, or clients sending
+`Accept: text/markdown`. Other clients receive HTML. `Vary: Accept, User-Agent`
+keeps caches from mixing representations. Direct `index.md` links work for
+any client. Missing URLs stay 404 and assets keep their normal content types.
+The snippet assumes the deployed `/mikaelogy` prefix and `/srv/mikaelogy` root.
+
+Before changing the production Caddyfile, save a timestamped backup, preserve
+the other virtual hosts, run `sudo -u caddy caddy validate --config /etc/caddy/Caddyfile`,
+and then `sudo systemctl reload caddy`. Validate as the service user so newly
+created log files have the correct owner. The repository stores only the
+Mikaelogy snippet, not the server's unrelated routing configuration.
+
+Access logs cover `/mikaelogy`, `/mikaelogy/*`, and `/robots.txt` and live in
+`/var/log/caddy/mikaelogy-access.json`, with 10 MiB rotation and up to five
+rotated files retained for seven days. They stay outside Git. Summarize them:
+
+```sh
+sudo python3 bin/access-report /var/log/caddy/mikaelogy-access*.json*
+# Older error logs (successful requests were not previously recorded):
+sudo journalctl -u caddy --since '14 days ago' -o cat | python3 bin/access-report
+```
+
+The report excludes smoke checks carrying `Mikaelogy-Check/` unless
+`--include-checks` is passed. User-agent names can be spoofed; they are not
+proof that a request came from Anthropic. Crawlers may also cache previous
+robots failures, so a corrected response does not guarantee an immediate retry.
+
+Run `python3 bin/check-site` after deployment to check the public robots rule,
+HTML and Markdown negotiation, alternate links, HEAD responses, assets, and
+404s. Pass an origin URL to check a local Caddy instance instead.
 
 ## Equity webfonts
 

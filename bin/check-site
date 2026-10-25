@@ -1,0 +1,60 @@
+#!/usr/bin/env python3
+"""Check deployed Mikaelogy representations and crawler routes."""
+import argparse
+import urllib.error
+import urllib.request
+
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument("origin", nargs="?", default="https://less.rest")
+args = parser.parse_args()
+checks = 0
+
+
+def get(path, agent="Mozilla/5.0", accept="*/*", method="GET"):
+    request = urllib.request.Request(
+        args.origin.rstrip("/") + path,
+        method=method,
+        headers={"User-Agent": agent + " Mikaelogy-Check/1.0", "Accept": accept},
+    )
+    try:
+        response = urllib.request.urlopen(request, timeout=20)
+    except urllib.error.HTTPError as error:
+        response = error
+    with response:
+        return response.status, response.headers, response.read()
+
+
+def check(path, mime, agent="Mozilla/5.0", accept="*/*", method="GET"):
+    global checks
+    status, headers, body = get(path, agent, accept, method)
+    assert status == 200, (path, agent, status)
+    assert mime in headers.get("Content-Type", ""), (path, agent, dict(headers))
+    if path.startswith("/mikaelogy/"):
+        vary = ",".join(headers.get_all("Vary", [])).lower()
+        assert "accept" in vary and "user-agent" in vary, (path, vary)
+    checks += 1
+    return body
+
+
+robots = check("/robots.txt", "text/plain", "Claude-User")
+assert b"User-agent: *" in robots and b"Disallow: /" not in robots
+for path in ["/mikaelogy/", "/mikaelogy/days/2021-03-29/", "/mikaelogy/topics/love/"]:
+    html = check(path, "text/html")
+    markdown = check(path + "index.md", "text/markdown")
+    assert b'type="text/markdown"' in html
+    for agent in ["Claude-User", "ClaudeBot", "Claude-SearchBot", "ChatGPT-User",
+                  "OAI-SearchBot", "GPTBot", "PerplexityBot", "Perplexity-User"]:
+        assert check(path, "text/markdown", agent) == markdown
+    assert check(path, "text/markdown", accept="text/markdown") == markdown
+    assert check(path, "text/markdown", accept="text/markdown;q=0.5") == markdown
+    assert check(path, "text/html", accept="text/markdown;q=0, text/html") == html
+    assert check(path + "index.html", "text/markdown", "Claude-User") == markdown
+    check(path, "text/markdown", "Claude-User", method="HEAD")
+
+check("/mikaelogy/topics/love", "text/markdown", "Claude-User")
+check("/mikaelogy/index.css", "text/css", "Claude-User")
+check("/mikaelogy/llms.txt", "text/plain", "Claude-User")
+for path in ["/mikaelogy/nonexistent-test-page", "/mikaelogy/mikaelogy.edn"]:
+    assert get(path, "Claude-User")[0] == 404, path
+    checks += 1
+print(f"Passed {checks} live HTTP checks against {args.origin}")
